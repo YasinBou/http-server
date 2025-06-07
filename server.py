@@ -34,8 +34,12 @@ while True:
     # Log HTTP request.
     print(request)
 
+    with open("html-docs/index.html") as file:
+        # HTML file that will be displayed to the user on succesfull connection to the server.
+        content = file.read()
+
     # Response that welcomes the user to our server.
-    response = "HTTP/1.0 200 OK\n\nWelcome to my web server!"
+    response = "HTTP/1.0 200 OK\n\n" + content
 
     # .encode() converts the response string to bytes.
     # .sendall() sends all the bytes of the response to the client.
