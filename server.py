@@ -1,49 +1,68 @@
+import mimetypes
+import os
 import socket
 
 HOST = "0.0.0.0"
 PORT = 8000
+BASE_DIR = os.path.abspath("html-docs")
 
-# AF_INET = ipv4 specification.
-# SOCK_STREAM = TCP socket specification.
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-# SOL_SOCKET = socket level indication.
-# SO_REUSEADDR = allows the port to be reused without waiting for the os to clear it.
-# 1 means "enable this option"
 client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-# Binds the socket to the ip and port we have set.
 client_socket.bind((HOST, PORT))
-
-# Tells the socket to start listening for incoming connections.
-# 1 = backlog aka the maximum number of queued connections waiting to be accepted.
 client_socket.listen(1)
 
-# Log listening session
 print("LISTENING ON PORT %s" % PORT)
 
-# An infinite loop to keep the server running - always ready to accept new client connections.
-while True:
-    # Await connections.
-    client_connection, client_adress = client_socket.accept()
+try:
+    while True:
+        client_connection, client_address = client_socket.accept()
 
-    # .recv(1024) Receives up to 1024 bytes of data from the client.
-    # .decode() Converts bytes to a string (assumed UTF-8 by default)
-    request = client_connection.recv(1024).decode()
+        request = client_connection.recv(1024).decode()
+        print(f"\n--- Request from {client_address} ---")
+        print(request)
 
-    # Log HTTP request.
-    print(request)
+        # Parse HTTP request line
+        headers = request.split("\n")
+        if not headers or len(headers[0].split()) < 2:
+            client_connection.close()
+            continue
 
-    with open("html-docs/index.html") as file:
-        # HTML file that will be displayed to the user on succesfull connection to the server.
-        content = file.read()
+        method, path = headers[0].split()[:2]
+        if path == "/":
+            path = "/index.html"
 
-    # Response that welcomes the user to our server.
-    response = "HTTP/1.0 200 OK\n\n" + content
+        # Sanitize path to prevent directory traversal
+        requested_path = os.path.abspath(os.path.join(BASE_DIR, path.lstrip("/")))
+        if not requested_path.startswith(BASE_DIR):
+            response = "HTTP/1.0 403 FORBIDDEN\n\nAccess denied."
+            status_code = 403
 
-    # .encode() converts the response string to bytes.
-    # .sendall() sends all the bytes of the response to the client.
-    client_connection.sendall(response.encode())
+        elif not os.path.exists(requested_path) or not os.path.isfile(requested_path):
+            response = "HTTP/1.0 404 NOT FOUND\n\nThe requested file was not found on the server."
+            status_code = 404
 
-    # Closes the connection when the client is done talking to the server.
-    client_connection.close()
+        else:
+            with open(requested_path, "rb") as file:
+                content = file.read()
+
+            mime_type, _ = mimetypes.guess_type(requested_path)
+            mime_type = mime_type or "application/octet-stream"
+
+            response_headers = f"HTTP/1.0 200 OK\nContent-Type: {mime_type}\n\n"
+            response = response_headers.encode() + content
+            status_code = 200
+
+        # Log result
+        print(f"Served: {path} → Status: {status_code}")
+
+        # Send full response
+        if isinstance(response, str):
+            response = response.encode()
+        client_connection.sendall(response)
+        client_connection.close()
+
+except KeyboardInterrupt:
+    print("\nShutting down server...")
+
+finally:
+    client_socket.close()
